@@ -42,6 +42,17 @@ class AmountsTest {
     }
 
     @Test
+    void readsWholeRupeeAmount() {
+        assertEquals(
+                new BigDecimal("5.00"),
+                Amounts.first(
+                        "Rs.5 debited from a/c **4821 on 04-07-26 at 11:54 " +
+                                "to UPI/WATER CAN. Avl Bal: Rs.92,213.10."
+                )
+        );
+    }
+
+    @Test
     void ignoresAMessageWithNoAmountAtAll() {
         assertEquals(null, Amounts.first("Your Swiggy order is on the way!"));
     }
