@@ -1,0 +1,10 @@
+{
+  "discrepancies": [
+    {
+      "account_last4": "4821",
+      "occurred_at": "2026-07-29T17:06+05:30",
+      "amount": "7500.00",
+      "note": "Bank stated balance changed from 36054.05 at 2026-07-29T11:53+05:30 to 28479.05 at 2026-07-29T17:06+05:30, but ledger transactions account for net movement of -75.00 (unexplained difference of -7500.00)"
+    }
+  ]
+}
