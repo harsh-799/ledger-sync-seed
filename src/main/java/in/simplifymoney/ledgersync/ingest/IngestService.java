@@ -175,7 +175,7 @@ public final class IngestService {
     }
 
     private NormalizedTxn toTransaction(ParsedTxn p) {
-        Category c = p.direction() == Direction.DEBIT ? Category.SPEND : Category.INCOME;
+        Category c = Categorizer.categorize(p.direction(), p.amount(), p.merchant());
         return new NormalizedTxn(p.accountLast4(), p.occurredAt(), p.direction(),
                 p.amount(), c, p.merchant(), List.of(p.sourceMessageId()));
     }
