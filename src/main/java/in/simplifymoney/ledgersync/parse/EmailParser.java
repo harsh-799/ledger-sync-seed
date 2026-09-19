@@ -18,7 +18,8 @@ public final class EmailParser implements MessageParser {
 
     private static final Pattern TRANSACTION = Pattern.compile(
             "account ending (?<acct>\\d{4}) has been "
-                    + "(?<dir>debited|credited) with INR "
+                    + "(?<dir>debited|credited) with "
+                    + "(?:INR|Rs\\.?)\\s*"
                     + "(?<amount>[0-9,]+(?:\\.[0-9]{2})?)\\."
                     + ".*?Merchant / Remarks: (?<merchant>.+?)\\n",
             Pattern.DOTALL);
