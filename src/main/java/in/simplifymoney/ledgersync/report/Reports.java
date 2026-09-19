@@ -133,7 +133,14 @@ public final class Reports {
                 }
             }
 
-            List<NormalizedTxn> acctTxns = txnsByAccount.getOrDefault(account, List.of());
+            Map<String, NormalizedTxn> uniqueTxns = new LinkedHashMap<>();
+            for (NormalizedTxn t : txnsByAccount.getOrDefault(account, List.of())) {
+                String key = t.occurredAt().toInstant() + "|" + t.direction() + "|"
+                        + t.amount().setScale(2).toPlainString() + "|"
+                        + (t.merchant() == null ? "" : t.merchant());
+                uniqueTxns.putIfAbsent(key, t);
+            }
+            List<NormalizedTxn> acctTxns = new ArrayList<>(uniqueTxns.values());
 
             for (int i = 1; i < deduplicated.size(); i++) {
                 BalanceSnapshot prev = deduplicated.get(i - 1);

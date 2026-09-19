@@ -8,7 +8,9 @@ import in.simplifymoney.ledgersync.model.NormalizedTxn;
 import in.simplifymoney.ledgersync.parse.Parsers;
 import in.simplifymoney.ledgersync.report.Reports;
 import in.simplifymoney.ledgersync.store.InMemoryLedgerStore;
+import in.simplifymoney.ledgersync.store.SqlLedgerStore;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
@@ -113,5 +115,43 @@ class ReconciliationTest {
         assertEquals("4821", d.get("account_last4"));
         assertEquals("7500.00", d.get("amount"));
         assertTrue(d.get("occurred_at").toString().startsWith("2026-07-29T17:06"));
+    }
+
+    @Test
+    void reportPathWithSqlStoreProducesSameCorrectReconciliationEvenWithRepeatedIngestion(@TempDir Path tempDir) throws Exception {
+        Path db = tempDir.resolve("regression_test_ledger");
+        try (SqlLedgerStore store = new SqlLedgerStore(db)) {
+            store.migrate(Path.of("db", "migration"));
+
+            IngestService ingest = new IngestService(new Parsers(), store);
+            ingest.ingestFile(Path.of("fixtures/corpus-a.jsonl"));
+            // Re-run ingest to verify repeated ingestion does not break reconciliation
+            ingest.ingestFile(Path.of("fixtures/corpus-a.jsonl"));
+
+            List<NormalizedTxn> ledger = store.all();
+            List<BalanceSnapshot> snapshots = store.balanceSnapshots();
+
+            Map<String, Object> report = Reports.reconciliation(ledger, snapshots);
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> discrepancies =
+                    (List<Map<String, Object>>) report.get("discrepancies");
+
+            List<Map<String, Object>> for4821 = discrepancies.stream()
+                    .filter(d -> "4821".equals(d.get("account_last4")))
+                    .toList();
+
+            List<Map<String, Object>> for9075 = discrepancies.stream()
+                    .filter(d -> "9075".equals(d.get("account_last4")))
+                    .toList();
+
+            assertTrue(for9075.isEmpty(), "Account 9075 should have 0 discrepancies");
+            assertEquals(1, for4821.size(), "Account 4821 should have exactly 1 discrepancy");
+
+            Map<String, Object> d = for4821.get(0);
+            assertEquals("4821", d.get("account_last4"));
+            assertEquals("7500.00", d.get("amount"));
+            assertTrue(d.get("occurred_at").toString().startsWith("2026-07-29T17:06"));
+        }
     }
 }

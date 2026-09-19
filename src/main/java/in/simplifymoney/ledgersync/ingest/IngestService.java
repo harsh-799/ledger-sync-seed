@@ -143,12 +143,27 @@ public final class IngestService {
             crossChannelIndex.put(crossKey, key);
         }
 
-        for (NormalizedTxn txn : transactions.values()) {
-            store.save(txn);
+        Set<String> existingTxnKeys = new HashSet<>();
+        for (NormalizedTxn existing : store.all()) {
+            existingTxnKeys.add(transactionKey(existing));
         }
 
-        deduplicateBalanceSnapshots(balanceSnapshots)
-                .forEach(store::saveBalanceSnapshot);
+        for (NormalizedTxn txn : transactions.values()) {
+            if (!existingTxnKeys.contains(transactionKey(txn))) {
+                store.save(txn);
+            }
+        }
+
+        Set<String> existingSnapshotKeys = new HashSet<>();
+        for (BalanceSnapshot existing : store.balanceSnapshots()) {
+            existingSnapshotKeys.add(snapshotKey(existing));
+        }
+
+        for (BalanceSnapshot s : deduplicateBalanceSnapshots(balanceSnapshots)) {
+            if (!existingSnapshotKeys.contains(snapshotKey(s))) {
+                store.saveBalanceSnapshot(s);
+            }
+        }
 
         return new Stats(
                 messages.size(),
@@ -256,6 +271,18 @@ public final class IngestService {
 
     private boolean isCardLimit(String body) {
         return body != null && (body.contains("Avl Limit") || body.contains("Card x"));
+    }
+
+    private static String transactionKey(NormalizedTxn t) {
+        return t.accountLast4() + "|"
+                + t.occurredAt().toInstant() + "|"
+                + t.direction() + "|"
+                + t.amount().setScale(2).toPlainString() + "|"
+                + (t.merchant() == null ? "" : t.merchant());
+    }
+
+    private static String snapshotKey(BalanceSnapshot s) {
+        return s.accountLast4() + "|" + s.observedAt().toInstant() + "|" + s.balance().setScale(2).toPlainString();
     }
 
     public record Stats(int messagesRead, int transactionsWritten, int messagesSkipped) {}

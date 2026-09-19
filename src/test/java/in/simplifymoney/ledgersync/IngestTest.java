@@ -47,4 +47,28 @@ class IngestTest {
                 txn.sourceMessageIds()
         );
     }
+
+    @Test
+    void repeatedIngestionIsIdempotentAndDoesNotDuplicateTransactions() throws Exception {
+        RawMessage msg = new RawMessage(
+                "m-1",
+                "sms",
+                "AD-HDFCBK-S",
+                OffsetDateTime.parse("2026-07-04T12:25:00+05:30"),
+                "dev-1",
+                "Rs 154.49 debited from a/c **4821 on 04-07-26 at 12:24 "
+                        + "to RELIANCE SMART. Avl Bal: Rs.92,058.61.");
+
+        InMemoryLedgerStore store = new InMemoryLedgerStore();
+        IngestService ingest = new IngestService(new Parsers(), store);
+
+        ingest.ingestMessages(List.of(msg));
+        assertEquals(1, store.count());
+        assertEquals(1, store.balanceSnapshots().size());
+
+        // Ingest the same message again in a subsequent run
+        ingest.ingestMessages(List.of(msg));
+        assertEquals(1, store.count());
+        assertEquals(1, store.balanceSnapshots().size());
+    }
 }
