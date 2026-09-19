@@ -51,7 +51,7 @@ public final class IciciSmsParser implements MessageParser {
             Direction d = "debited".equals(v1.group("dir")) ? Direction.DEBIT : Direction.CREDIT;
             return Optional.of(new ParsedTxn(v1.group("acct"), at, d, amount,
                     v1.group("merchant").trim(), Amounts.statedBalance(body),
-                    m.messageId()));
+                    null, m.messageId()));
         }
 
         Matcher v2 = V2.matcher(body);
@@ -75,6 +75,7 @@ public final class IciciSmsParser implements MessageParser {
                     amount,
                     v2.group("merchant").trim(),
                     new BigDecimal(v2.group("balance").replace(",", "")).setScale(2),
+                    null,
                     m.messageId()
             ));
         }

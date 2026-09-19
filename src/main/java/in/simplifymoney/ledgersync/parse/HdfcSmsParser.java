@@ -76,6 +76,6 @@ public final class HdfcSmsParser implements MessageParser {
         OffsetDateTime at = Dates.ist(when);
         if (amount == null || at == null) return Optional.empty();
         return Optional.of(new ParsedTxn(acct, at, dir, amount, merchant.trim(),
-                Amounts.statedBalance(m.body()), m.messageId()));
+                Amounts.statedBalance(m.body()), null, m.messageId()));
     }
 }

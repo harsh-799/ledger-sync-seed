@@ -17,5 +17,6 @@ public record ParsedTxn(
         BigDecimal amount,
         String merchant,
         BigDecimal statedBalance,
+        String transactionReference,
         String sourceMessageId) {
 }

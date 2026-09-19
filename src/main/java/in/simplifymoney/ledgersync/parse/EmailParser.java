@@ -27,6 +27,9 @@ public final class EmailParser implements MessageParser {
             "Date: .*?, (?<when>\\d{2} \\w{3} \\d{4} "
                     + "\\d{2}:\\d{2}:\\d{2} [+-]\\d{4})");
 
+    private static final Pattern TRANSACTION_REFERENCE =
+            Pattern.compile("Transaction reference:\\s*(?<ref>\\d+)");
+
     @Override
     public boolean supports(RawMessage m) {
         return "email".equals(m.channel());
@@ -65,6 +68,14 @@ public final class EmailParser implements MessageParser {
 
         String merchant = transaction.group("merchant").trim();
 
+        Matcher refMatcher = TRANSACTION_REFERENCE.matcher(body);
+
+        if (!refMatcher.find()) {
+            return Optional.empty();
+        }
+
+        String reference = refMatcher.group("ref");
+
         return Optional.of(new ParsedTxn(
                 acct,
                 occurredAt,
@@ -72,6 +83,7 @@ public final class EmailParser implements MessageParser {
                 amount,
                 merchant,
                 null,
+                reference,
                 m.messageId()
         ));
     }

@@ -54,14 +54,7 @@ public final class IngestService {
 
             ParsedTxn parsed = p.get();
 
-            TxnKey key = new TxnKey(
-                    parsed.accountLast4(),
-                    parsed.occurredAt(),
-                    parsed.direction(),
-                    parsed.amount(),
-                    parsed.merchant(),
-                    parsed.statedBalance()
-            );
+            TxnKey key = buildKey(parsed);
 
             NormalizedTxn existing = transactions.get(key);
 
@@ -114,6 +107,24 @@ public final class IngestService {
         Category c = p.direction() == Direction.DEBIT ? Category.SPEND : Category.INCOME;
         return new NormalizedTxn(p.accountLast4(), p.occurredAt(), p.direction(),
                 p.amount(), c, p.merchant(), List.of(p.sourceMessageId()));
+    }
+
+    private TxnKey buildKey(ParsedTxn parsed) {
+        if (parsed.transactionReference() != null) {
+            return TxnKey.forReference(
+                    parsed.accountLast4(),
+                    parsed.transactionReference()
+            );
+        }
+
+        return TxnKey.forDetails(
+                parsed.accountLast4(),
+                parsed.occurredAt(),
+                parsed.direction(),
+                parsed.amount(),
+                parsed.merchant(),
+                parsed.statedBalance()
+        );
     }
 
     public record Stats(int messagesRead, int transactionsWritten, int messagesSkipped) {}
