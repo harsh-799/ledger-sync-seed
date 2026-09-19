@@ -40,11 +40,17 @@ public final class IngestService {
     }
 
     public Stats ingestMessages(List<RawMessage> messages) {
-        Map<TxnKey, NormalizedTxn> transactions = new java.util.LinkedHashMap<>();
+
+        Map<TxnKey, NormalizedTxn> transactions =
+                new java.util.LinkedHashMap<>();
+
+        Map<CrossChannelKey, TxnKey> crossChannelIndex =
+                new java.util.HashMap<>();
 
         int skipped = 0;
 
         for (RawMessage m : messages) {
+
             Optional<ParsedTxn> p = parsers.parse(m);
 
             if (p.isEmpty()) {
@@ -56,16 +62,27 @@ public final class IngestService {
 
             TxnKey key = buildKey(parsed);
 
-            NormalizedTxn existing = transactions.get(key);
+            /*
+             * First check whether this message represents a transaction
+             * that we have already seen through another channel.
+             */
+            CrossChannelKey crossKey = buildCrossChannelKey(parsed);
 
-            if (existing == null) {
-                transactions.put(key, toTransaction(parsed));
-            } else {
-                List<String> sourceIds = new ArrayList<>(existing.sourceMessageIds());
-                sourceIds.add(parsed.sourceMessageId());
+            TxnKey existingKey = crossChannelIndex.get(crossKey);
+
+            if (existingKey != null) {
+
+                NormalizedTxn existing = transactions.get(existingKey);
+
+                List<String> sourceIds =
+                        new ArrayList<>(existing.sourceMessageIds());
+
+                if (!sourceIds.contains(parsed.sourceMessageId())) {
+                    sourceIds.add(parsed.sourceMessageId());
+                }
 
                 transactions.put(
-                        key,
+                        existingKey,
                         new NormalizedTxn(
                                 existing.accountLast4(),
                                 existing.occurredAt(),
@@ -76,14 +93,31 @@ public final class IngestService {
                                 sourceIds
                         )
                 );
+
+                continue;
             }
+
+            /*
+             * No cross-channel match.
+             * Now perform the normal transaction insertion.
+             */
+            transactions.put(key, toTransaction(parsed));
+
+            /*
+             * Remember which transaction this cross-channel key belongs to.
+             */
+            crossChannelIndex.put(crossKey, key);
         }
 
         for (NormalizedTxn txn : transactions.values()) {
             store.save(txn);
         }
 
-        return new Stats(messages.size(), transactions.size(), skipped);
+        return new Stats(
+                messages.size(),
+                transactions.size(),
+                skipped
+        );
     }
 
     public static List<RawMessage> readCorpus(Path corpus) throws IOException {
@@ -124,6 +158,26 @@ public final class IngestService {
                 parsed.amount(),
                 parsed.merchant(),
                 parsed.statedBalance()
+        );
+    }
+
+    private String normalizeMerchant(String merchant) {
+        if (merchant == null) {
+            return "";
+        }
+
+        return merchant
+                .toUpperCase()
+                .replaceAll("[^A-Z0-9]", "");
+    }
+
+    private CrossChannelKey buildCrossChannelKey(ParsedTxn parsed) {
+        return new CrossChannelKey(
+                parsed.accountLast4(),
+                parsed.occurredAt().toInstant(),
+                parsed.direction(),
+                parsed.amount(),
+                normalizeMerchant(parsed.merchant())
         );
     }
 

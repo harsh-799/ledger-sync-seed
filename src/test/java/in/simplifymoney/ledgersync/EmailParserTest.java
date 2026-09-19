@@ -93,7 +93,7 @@ class EmailParserTest {
                 Dear Customer,
     
                 Your account ending 4821 has been debited with INR 89.01.
-                Merchant / Remarks: PVR CINEMAS ONLINE
+                Merchant / Remarks: PVR CINEMAS
                 Transaction reference: 2281088873
     
                 This is a system generated email.
