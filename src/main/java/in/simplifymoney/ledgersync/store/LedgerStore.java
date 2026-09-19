@@ -1,5 +1,6 @@
 package in.simplifymoney.ledgersync.store;
 
+import in.simplifymoney.ledgersync.model.BalanceSnapshot;
 import in.simplifymoney.ledgersync.model.NormalizedTxn;
 import java.util.List;
 
@@ -16,4 +17,10 @@ public interface LedgerStore {
     List<NormalizedTxn> all();
 
     long count();
+
+    default void saveBalanceSnapshot(BalanceSnapshot snapshot) {}
+
+    default List<BalanceSnapshot> balanceSnapshots() {
+        return List.of();
+    }
 }

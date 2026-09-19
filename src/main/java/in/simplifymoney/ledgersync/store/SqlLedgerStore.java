@@ -1,5 +1,6 @@
 package in.simplifymoney.ledgersync.store;
 
+import in.simplifymoney.ledgersync.model.BalanceSnapshot;
 import in.simplifymoney.ledgersync.model.Category;
 import in.simplifymoney.ledgersync.model.Direction;
 import in.simplifymoney.ledgersync.model.NormalizedTxn;
@@ -32,7 +33,7 @@ public final class SqlLedgerStore implements LedgerStore, AutoCloseable {
     public SqlLedgerStore(Path dbFile) {
         try {
             this.conn = DriverManager.getConnection(
-                    URL_PREFIX + dbFile.toAbsolutePath() + ";MODE=PostgreSQL", "sa", "");
+                    URL_PREFIX + dbFile.toAbsolutePath() + ";MODE=LEGACY", "sa", "");
         } catch (SQLException e) {
             throw new IllegalStateException(
                     "could not open the ledger database at " + dbFile
@@ -137,6 +138,55 @@ public final class SqlLedgerStore implements LedgerStore, AutoCloseable {
         } catch (SQLException e) {
             throw new IllegalStateException("could not total the ledger", e);
         }
+    }
+
+    private void ensureBalanceSnapshotsTable() {
+        try (Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE IF NOT EXISTS balance_snapshots ("
+                    + "  id IDENTITY PRIMARY KEY,"
+                    + "  account_last4 VARCHAR(4) NOT NULL,"
+                    + "  observed_at VARCHAR(40) NOT NULL,"
+                    + "  balance DECIMAL(14, 2) NOT NULL,"
+                    + "  source_message_id VARCHAR(100) NOT NULL)");
+        } catch (SQLException e) {
+            throw new IllegalStateException("could not create balance_snapshots table", e);
+        }
+    }
+
+    @Override
+    public void saveBalanceSnapshot(BalanceSnapshot snapshot) {
+        ensureBalanceSnapshotsTable();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO balance_snapshots(account_last4, observed_at, balance, source_message_id)"
+                        + " VALUES (?,?,?,?)")) {
+            ps.setString(1, snapshot.accountLast4());
+            ps.setString(2, snapshot.observedAt().toString());
+            ps.setBigDecimal(3, snapshot.balance());
+            ps.setString(4, snapshot.sourceMessageId());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("could not save balance snapshot " + snapshot, e);
+        }
+    }
+
+    @Override
+    public List<BalanceSnapshot> balanceSnapshots() {
+        ensureBalanceSnapshotsTable();
+        List<BalanceSnapshot> out = new ArrayList<>();
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT account_last4, observed_at, balance, source_message_id FROM balance_snapshots ORDER BY observed_at")) {
+            while (rs.next()) {
+                out.add(new BalanceSnapshot(
+                        rs.getString(1),
+                        OffsetDateTime.parse(rs.getString(2)),
+                        rs.getBigDecimal(3).setScale(2),
+                        rs.getString(4)));
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("could not read balance snapshots", e);
+        }
+        return out;
     }
 
     @Override

@@ -1,21 +1,29 @@
 package in.simplifymoney.ledgersync.ingest;
 
 import in.simplifymoney.ledgersync.json.Json;
+import in.simplifymoney.ledgersync.model.BalanceSnapshot;
 import in.simplifymoney.ledgersync.model.Category;
 import in.simplifymoney.ledgersync.model.Direction;
 import in.simplifymoney.ledgersync.model.NormalizedTxn;
 import in.simplifymoney.ledgersync.model.RawMessage;
+import in.simplifymoney.ledgersync.parse.Amounts;
+import in.simplifymoney.ledgersync.parse.Dates;
 import in.simplifymoney.ledgersync.parse.ParsedTxn;
 import in.simplifymoney.ledgersync.parse.Parsers;
 import in.simplifymoney.ledgersync.store.LedgerStore;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -26,6 +34,9 @@ import java.util.stream.Stream;
  * transaction, and it decides the category from the direction alone.
  */
 public final class IngestService {
+
+    private static final Pattern BALANCE_ONLY = Pattern.compile(
+            "Avl Bal in a/c \\*\\*(?<acct>\\d{4}) is Rs\\.?([0-9,]+\\.[0-9]{2}) as on (?<date>\\d{2}-\\d{2}-\\d{2})");
 
     private final Parsers parsers;
     private final LedgerStore store;
@@ -47,9 +58,23 @@ public final class IngestService {
         Map<CrossChannelKey, TxnKey> crossChannelIndex =
                 new java.util.HashMap<>();
 
+        List<BalanceSnapshot> balanceSnapshots = new ArrayList<>();
+        Set<String> seenBalanceAlertKeys = new HashSet<>();
+
         int skipped = 0;
 
         for (RawMessage m : messages) {
+
+            Optional<BalanceSnapshot> balOnly = parseBalanceOnly(m);
+            if (balOnly.isPresent()) {
+                BalanceSnapshot snap = balOnly.get();
+                String snapKey = snap.accountLast4() + "|" + snap.observedAt().toLocalDate() + "|" + snap.balance();
+                if (seenBalanceAlertKeys.add(snapKey)) {
+                    balanceSnapshots.add(snap);
+                }
+                skipped++;
+                continue;
+            }
 
             Optional<ParsedTxn> p = parsers.parse(m);
 
@@ -59,6 +84,15 @@ public final class IngestService {
             }
 
             ParsedTxn parsed = p.get();
+
+            if (parsed.statedBalance() != null && !isCardLimit(m.body())) {
+                balanceSnapshots.add(new BalanceSnapshot(
+                        parsed.accountLast4(),
+                        parsed.occurredAt(),
+                        parsed.statedBalance(),
+                        parsed.sourceMessageId()
+                ));
+            }
 
             TxnKey key = buildKey(parsed);
 
@@ -112,6 +146,9 @@ public final class IngestService {
         for (NormalizedTxn txn : transactions.values()) {
             store.save(txn);
         }
+
+        deduplicateBalanceSnapshots(balanceSnapshots)
+                .forEach(store::saveBalanceSnapshot);
 
         return new Stats(
                 messages.size(),
@@ -179,6 +216,46 @@ public final class IngestService {
                 parsed.amount(),
                 normalizeMerchant(parsed.merchant())
         );
+    }
+
+    private Optional<BalanceSnapshot> parseBalanceOnly(RawMessage m) {
+        Matcher matcher = BALANCE_ONLY.matcher(m.body());
+        if (!matcher.find()) {
+            return Optional.empty();
+        }
+        String acct = matcher.group("acct");
+        BigDecimal bal = Amounts.statedBalance(m.body());
+        if (bal == null) return Optional.empty();
+        String dateStr = matcher.group("date");
+        try {
+            java.time.LocalDate statedDate = java.time.LocalDate.parse(dateStr,
+                    java.time.format.DateTimeFormatter.ofPattern("dd-MM-yy"));
+            OffsetDateTime dt;
+            if (m.receivedAt().toLocalDate().equals(statedDate)) {
+                dt = m.receivedAt();
+            } else {
+                dt = statedDate.atTime(m.receivedAt().toLocalTime()).atOffset(Dates.IST);
+            }
+            return Optional.of(new BalanceSnapshot(acct, dt, bal, m.messageId()));
+        } catch (Exception e) {
+            return Optional.of(new BalanceSnapshot(acct, m.receivedAt(), bal, m.messageId()));
+        }
+    }
+
+    private List<BalanceSnapshot> deduplicateBalanceSnapshots(List<BalanceSnapshot> snapshots) {
+        List<BalanceSnapshot> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (BalanceSnapshot s : snapshots) {
+            String key = s.accountLast4() + "|" + s.observedAt() + "|" + s.balance();
+            if (seen.add(key)) {
+                out.add(s);
+            }
+        }
+        return out;
+    }
+
+    private boolean isCardLimit(String body) {
+        return body != null && (body.contains("Avl Limit") || body.contains("Card x"));
     }
 
     public record Stats(int messagesRead, int transactionsWritten, int messagesSkipped) {}
