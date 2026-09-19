@@ -36,19 +36,61 @@ public final class IngestService {
     }
 
     public Stats ingestFile(Path corpus) throws IOException {
-        List<RawMessage> messages = readCorpus(corpus);
-        int parsed = 0;
+        return ingestMessages(readCorpus(corpus));
+    }
+
+    public Stats ingestMessages(List<RawMessage> messages) {
+        Map<TxnKey, NormalizedTxn> transactions = new java.util.LinkedHashMap<>();
+
         int skipped = 0;
+
         for (RawMessage m : messages) {
             Optional<ParsedTxn> p = parsers.parse(m);
+
             if (p.isEmpty()) {
                 skipped++;
                 continue;
             }
-            store.save(toTransaction(p.get()));
-            parsed++;
+
+            ParsedTxn parsed = p.get();
+
+            TxnKey key = new TxnKey(
+                    parsed.accountLast4(),
+                    parsed.occurredAt(),
+                    parsed.direction(),
+                    parsed.amount(),
+                    parsed.merchant(),
+                    parsed.statedBalance()
+            );
+
+            NormalizedTxn existing = transactions.get(key);
+
+            if (existing == null) {
+                transactions.put(key, toTransaction(parsed));
+            } else {
+                List<String> sourceIds = new ArrayList<>(existing.sourceMessageIds());
+                sourceIds.add(parsed.sourceMessageId());
+
+                transactions.put(
+                        key,
+                        new NormalizedTxn(
+                                existing.accountLast4(),
+                                existing.occurredAt(),
+                                existing.direction(),
+                                existing.amount(),
+                                existing.category(),
+                                existing.merchant(),
+                                sourceIds
+                        )
+                );
+            }
         }
-        return new Stats(messages.size(), parsed, skipped);
+
+        for (NormalizedTxn txn : transactions.values()) {
+            store.save(txn);
+        }
+
+        return new Stats(messages.size(), transactions.size(), skipped);
     }
 
     public static List<RawMessage> readCorpus(Path corpus) throws IOException {
@@ -75,4 +117,5 @@ public final class IngestService {
     }
 
     public record Stats(int messagesRead, int transactionsWritten, int messagesSkipped) {}
+
 }
